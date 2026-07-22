@@ -1,0 +1,57 @@
+{
+  "name": "asp-mem",
+  "version": "0.1.0",
+  "description": "Lightweight, provider-agnostic long-term memory for conversational agents.",
+  "keywords": [
+    "ai",
+    "agent",
+    "conversation",
+    "llm",
+    "memory",
+    "rag"
+  ],
+  "homepage": "https://github.com/Eskeeet/asp-mem#readme",
+  "bugs": "https://github.com/Eskeeet/asp-mem/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Eskeeet/asp-mem.git"
+  },
+  "license": "MIT",
+  "author": "Aspiritual",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./supabase": {
+      "types": "./dist/supabase.d.ts",
+      "import": "./dist/supabase.js"
+    }
+  },
+  "files": [
+    "dist",
+    "supabase",
+    "README.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "pnpm run build && node --test",
+    "prepack": "pnpm run check"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@11.9.0"
+}
