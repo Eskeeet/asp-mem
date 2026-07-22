@@ -23,3 +23,39 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm pack --dry-run
+
+  supabase:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: test
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Bootstrap Supabase auth stubs
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres <<'SQL'
+          create schema auth;
+          create table auth.users (id uuid primary key);
+          create function auth.uid() returns uuid language sql stable
+          as $$ select null::uuid $$;
+          SQL
+      - name: Apply migrations and verify idempotence
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -f supabase/001_asp_mem.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -f supabase/002_temporal_hybrid_memory.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -f supabase/002_temporal_hybrid_memory.sql
+      - name: Run Supabase smoke test
+        run: psql -v ON_ERROR_STOP=1 -h localhost -U postgres -f test/supabase-smoke.sql

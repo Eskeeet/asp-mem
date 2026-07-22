@@ -1,6 +1,6 @@
 {
   "name": "asp-mem",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight, provider-agnostic long-term memory for conversational agents.",
   "keywords": [
     "ai",
@@ -47,7 +47,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "pnpm run build && node --test",
+    "check": "pnpm run build && pnpm run check:public-api && node --test",
+    "check:public-api": "tsc -p type-tests/tsconfig.json",
     "prepack": "pnpm run check"
   },
   "devDependencies": {

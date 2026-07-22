@@ -13,10 +13,13 @@ Conversational memory can contain identity, health, financial, relationship, loc
 - define retention and expiry rules;
 - encrypt data in transit and at rest;
 - isolate every operation by owner/tenant;
+- use the narrowest applicable organization, agent, and session scope;
 - support access, export, correction, and deletion requests;
 - avoid embedding data with a provider whose data policy is unacceptable for the use case.
 
 The included Supabase schema enables row-level security for authenticated users. A service-role key bypasses those policies and must never be exposed to clients.
+
+`MemoryAccessPolicy` is the application authorization hook. Database RLS and the policy should enforce compatible rules. Scope matching prevents a narrowly scoped record from appearing in a broader query, but it does not decide whether an actor is entitled to make that query.
 
 ## Prompt injection
 
@@ -25,3 +28,5 @@ Stored memories are untrusted input. The default context renderer escapes markup
 ## Extraction accuracy
 
 Model-generated memories can be wrong. The default extraction prompt only requests facts explicitly supplied by the user, but applications should validate domain-sensitive candidates and provide a user-facing way to inspect and correct stored memories.
+
+Assistant and tool attribution is disabled in turn capture unless explicitly allowed. Consolidation is a proposal mechanism: keep dry-run enabled until a trusted process or user has reviewed the actions. Supersession and retraction preserve history; use `forget()` when a privacy request requires actual deletion.
