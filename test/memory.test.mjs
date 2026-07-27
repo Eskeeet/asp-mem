@@ -272,6 +272,71 @@ test("access policy gates operations and retrieval stats decay separately from i
   assert.ok(operations.includes("recall"));
 });
 
+test("mutation permissions cannot be escalated through status patches", async () => {
+  let allowed = new Set(["remember"]);
+  const operations = [];
+  const actor = { id: "limited-agent" };
+  const memory = new AspMemory({
+    accessPolicy: {
+      authorize(request) {
+        operations.push(request.operation);
+        return allowed.has(request.operation);
+      },
+    },
+  });
+  const saved = await memory.remember({
+    ownerId,
+    actor,
+    content: "Original fact",
+  });
+
+  allowed = new Set(["restore"]);
+  await assert.rejects(
+    () =>
+      memory.revise(
+        ownerId,
+        saved.memory.id,
+        { status: "active", content: "Unauthorized rewrite" },
+        { actor },
+      ),
+    /access denied for revise/,
+  );
+
+  allowed = new Set(["retract"]);
+  await memory.retract(ownerId, saved.memory.id, { actor });
+  allowed = new Set(["restore"]);
+  const restored = await memory.restore(ownerId, saved.memory.id, { actor });
+
+  assert.equal(restored.content, "Original fact");
+  assert.deepEqual(operations.slice(-3), ["revise", "retract", "restore"]);
+});
+
+test("supersession attributes the replacement event to the mutation actor", async () => {
+  let nextId = 0;
+  const actor = { id: "memory-editor", roles: ["memory"] };
+  const memory = new AspMemory({ idFactory: () => `memory-${++nextId}` });
+  const original = await memory.remember({
+    ownerId,
+    actor,
+    content: "Prefers tea",
+  });
+
+  const changed = await memory.supersede(
+    ownerId,
+    original.memory.id,
+    { content: "Prefers coffee" },
+    { actor },
+  );
+  const replacementHistory = await memory.history(
+    ownerId,
+    changed.replacement.id,
+    { actor },
+  );
+
+  assert.equal(replacementHistory[0].action, "add");
+  assert.equal(replacementHistory[0].actor.id, actor.id);
+});
+
 test("hybrid recall works without embeddings and exposes score components", async () => {
   const memory = new AspMemory();
   await memory.remember({ ownerId, content: "Training for an October marathon", importance: 0.3 });

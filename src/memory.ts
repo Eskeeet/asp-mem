@@ -263,13 +263,19 @@ export class AspMemory {
     patch: MemoryPatch,
     options: MutationOptions = {},
   ): Promise<Memory> {
+    return this.#applyRevision("revise", ownerId, memoryId, patch, options);
+  }
+
+  async #applyRevision(
+    operation: MemoryOperation,
+    ownerId: string,
+    memoryId: string,
+    patch: MemoryPatch,
+    options: MutationOptions,
+  ): Promise<Memory> {
     const scope = normalizeScope(ownerId, options.scope);
     await this.#authorize(
-      patch.status === "retracted"
-        ? "retract"
-        : patch.status === "active"
-          ? "restore"
-          : "revise",
+      operation,
       ownerId,
       scope,
       options.actor,
@@ -291,7 +297,13 @@ export class AspMemory {
     memoryId: string,
     options: MutationOptions = {},
   ): Promise<Memory> {
-    return this.revise(ownerId, memoryId, { status: "retracted" }, options);
+    return this.#applyRevision(
+      "retract",
+      ownerId,
+      memoryId,
+      { status: "retracted" },
+      options,
+    );
   }
 
   async restore(
@@ -299,12 +311,22 @@ export class AspMemory {
     memoryId: string,
     options: MutationOptions = {},
   ): Promise<Memory> {
-    const current = await this.get(ownerId, memoryId, options);
+    const scope = normalizeScope(ownerId, options.scope);
+    await this.#authorize("restore", ownerId, scope, options.actor, memoryId);
+    const current = await this.#options.store.get({ ownerId, scope, memoryId });
     if (!current) throw new Error(`Memory not found: ${memoryId}`);
     if (current.status !== "retracted") {
       throw new Error(`Only retracted memories can be restored: ${memoryId}`);
     }
-    return this.revise(ownerId, memoryId, { status: "active" }, options);
+    return this.#options.store.revise({
+      ownerId,
+      scope,
+      memoryId,
+      patch: { status: "active" },
+      at: this.#options.now(),
+      ...(options.actor ? { actor: options.actor } : {}),
+      ...(options.reason ? { reason: options.reason } : {}),
+    });
   }
 
   async supersede(
@@ -329,6 +351,7 @@ export class AspMemory {
         ...replacement,
         ownerId,
         scope,
+        ...(options.actor ? { actor: options.actor } : {}),
         links,
         supersedesId: memoryId,
         validFrom: replacement.validFrom ?? at,
