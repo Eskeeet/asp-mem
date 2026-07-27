@@ -95,8 +95,10 @@ alter table public.asp_memories
 alter table public.asp_memories
   drop constraint if exists asp_memories_owner_id_kind_content_key_key;
 
-create unique index if not exists asp_memories_scoped_content_key
-  on public.asp_memories (owner_id, scope_key, kind, content_key);
+drop index if exists public.asp_memories_scoped_content_key;
+create unique index if not exists asp_memories_active_scoped_content_key
+  on public.asp_memories (owner_id, scope_key, kind, content_key)
+  where status = 'active';
 
 create index if not exists asp_memories_scope_rank_idx
   on public.asp_memories (

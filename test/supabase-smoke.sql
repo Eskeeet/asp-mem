@@ -9,6 +9,7 @@ declare
   v_owner uuid := '2a487e8e-4b2a-4737-8f70-e2b0d73b68da';
   v_first uuid := '11111111-1111-4111-8111-111111111111';
   v_second uuid := '22222222-2222-4222-8222-222222222222';
+  v_third uuid := '44444444-4444-4444-8444-444444444444';
   v_result jsonb;
   v_count bigint;
   v_score double precision;
@@ -105,8 +106,34 @@ begin
   );
   assert v_count = 3, 'history is incomplete';
 
-  perform public.record_asp_memory_access_v2(array[v_second], '2026-01-02');
-  assert (select access_count from public.asp_memories where id = v_second) = 1,
+  v_result := public.supersede_asp_memory_v2(
+    v_owner,
+    jsonb_build_object('userId', v_owner::text, 'agentId', 'agent-a'),
+    v_second,
+    jsonb_build_object(
+      'id', v_third,
+      'ownerId', v_owner,
+      'scope', jsonb_build_object('userId', v_owner::text, 'agentId', 'agent-a'),
+      'kind', 'preference',
+      'content', 'Prefers tea',
+      'importance', 0.6,
+      'confidence', 0.9,
+      'metadata', '{}'::jsonb,
+      'links', jsonb_build_array(jsonb_build_object('memoryId', v_second, 'type', 'updates')),
+      'supersedesId', v_second,
+      'observedAt', '2027-01-01T00:00:00Z',
+      'validFrom', '2027-01-01T00:00:00Z',
+      'createdAt', '2027-01-01T00:00:00Z'
+    ),
+    '2027-01-01T00:00:00Z', null, 'changed preference back'
+  );
+  assert v_result->'previous'->>'status' = 'superseded',
+    'second memory stayed active';
+  assert v_result->'replacement'->>'content' = 'Prefers tea',
+    'historical content could not become active again';
+
+  perform public.record_asp_memory_access_v2(array[v_third], '2027-01-02');
+  assert (select access_count from public.asp_memories where id = v_third) = 1,
     'access stats were not recorded';
 
   v_count := public.forget_asp_memories_v2(
@@ -123,6 +150,6 @@ begin
     jsonb_build_object('userId', v_owner::text),
     null, null, null, null
   );
-  assert v_count = 1, 'owner-wide forget did not remove remaining descendants';
+  assert v_count = 2, 'owner-wide forget did not remove remaining descendants';
 end;
 $$;
