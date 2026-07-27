@@ -41,6 +41,60 @@ test("deduplicates normalized content and reinforces confidence without changing
   assert.equal((await memory.recall(ownerId, { trackAccess: false })).length, 1);
 });
 
+test("rejects identifier collisions without corrupting in-memory state", async () => {
+  const memory = new AspMemory({ idFactory: () => "repeated-id" });
+  const original = await memory.remember({
+    ownerId,
+    content: "Original fact",
+  });
+
+  await assert.rejects(
+    () => memory.remember({ ownerId, content: "Different fact" }),
+    /Memory id already exists: repeated-id/,
+  );
+  await assert.rejects(
+    () =>
+      memory.supersede(ownerId, original.memory.id, {
+        content: "Replacement fact",
+      }),
+    /Memory id already exists: repeated-id/,
+  );
+
+  const recalled = await memory.recall(ownerId, { trackAccess: false });
+  assert.deepEqual(recalled.map((item) => item.content), ["Original fact"]);
+  assert.equal(recalled[0].status, "active");
+  assert.deepEqual(
+    (await memory.history(ownerId, original.memory.id)).map(
+      (event) => event.action,
+    ),
+    ["add"],
+  );
+});
+
+test("rejects revisions that collide with another active memory", async () => {
+  let nextId = 0;
+  const memory = new AspMemory({ idFactory: () => `memory-${++nextId}` });
+  const first = await memory.remember({ ownerId, content: "Alpha fact" });
+  const second = await memory.remember({ ownerId, content: "Beta fact" });
+
+  await assert.rejects(
+    () =>
+      memory.revise(ownerId, second.memory.id, {
+        content: `  ${first.memory.content.toLocaleUpperCase()}  `,
+      }),
+    new RegExp(`Active memory already exists: ${first.memory.id}`),
+  );
+
+  assert.deepEqual(
+    new Set(
+      (await memory.recall(ownerId, { trackAccess: false })).map(
+        (item) => item.content,
+      ),
+    ),
+    new Set(["Alpha fact", "Beta fact"]),
+  );
+});
+
 test("ranks semantic similarity together with importance", async () => {
   const vectors = new Map([
     ["cats", [1, 0]],
@@ -180,14 +234,30 @@ test("temporal supersession preserves current and historical truth plus immutabl
   });
 
   now = new Date("2026-01-01T00:00:00Z");
+  await assert.rejects(
+    () =>
+      memory.supersede(ownerId, original.memory.id, {
+        content: "Invalid retrospective replacement",
+        validFrom: new Date("2024-01-01T00:00:00Z"),
+      }),
+    /Replacement validFrom must be later than the current validFrom/,
+  );
   const changed = await memory.supersede(
     ownerId,
     original.memory.id,
-    { kind: "preference", content: "Prefers coffee" },
+    {
+      kind: "preference",
+      content: "Prefers coffee",
+      validFrom: new Date("2025-09-01T00:00:00Z"),
+    },
     { reason: "User explicitly changed preference" },
   );
 
   assert.equal(changed.previous.status, "superseded");
+  assert.equal(
+    changed.previous.validUntil.toISOString(),
+    "2025-09-01T00:00:00.000Z",
+  );
   assert.equal(changed.replacement.supersedesId, original.memory.id);
   assert.deepEqual(
     (await memory.recall(ownerId, { trackAccess: false })).map((item) => item.content),
@@ -201,6 +271,15 @@ test("temporal supersession preserves current and historical truth plus immutabl
       })
     ).map((item) => item.content),
     ["Prefers tea"],
+  );
+  assert.deepEqual(
+    (
+      await memory.recall(ownerId, {
+        referenceTime: new Date("2025-10-01T00:00:00Z"),
+        trackAccess: false,
+      })
+    ).map((item) => item.content),
+    ["Prefers coffee"],
   );
   const history = await memory.history(ownerId, original.memory.id);
   assert.deepEqual(history.map((event) => event.action), ["add", "supersede"]);
@@ -270,6 +349,71 @@ test("access policy gates operations and retrieval stats decay separately from i
   assert.equal(history[0].actor.id, "agent");
   assert.ok(operations.includes("remember"));
   assert.ok(operations.includes("recall"));
+});
+
+test("mutation permissions cannot be escalated through status patches", async () => {
+  let allowed = new Set(["remember"]);
+  const operations = [];
+  const actor = { id: "limited-agent" };
+  const memory = new AspMemory({
+    accessPolicy: {
+      authorize(request) {
+        operations.push(request.operation);
+        return allowed.has(request.operation);
+      },
+    },
+  });
+  const saved = await memory.remember({
+    ownerId,
+    actor,
+    content: "Original fact",
+  });
+
+  allowed = new Set(["restore"]);
+  await assert.rejects(
+    () =>
+      memory.revise(
+        ownerId,
+        saved.memory.id,
+        { status: "active", content: "Unauthorized rewrite" },
+        { actor },
+      ),
+    /access denied for revise/,
+  );
+
+  allowed = new Set(["retract"]);
+  await memory.retract(ownerId, saved.memory.id, { actor });
+  allowed = new Set(["restore"]);
+  const restored = await memory.restore(ownerId, saved.memory.id, { actor });
+
+  assert.equal(restored.content, "Original fact");
+  assert.deepEqual(operations.slice(-3), ["revise", "retract", "restore"]);
+});
+
+test("supersession attributes the replacement event to the mutation actor", async () => {
+  let nextId = 0;
+  const actor = { id: "memory-editor", roles: ["memory"] };
+  const memory = new AspMemory({ idFactory: () => `memory-${++nextId}` });
+  const original = await memory.remember({
+    ownerId,
+    actor,
+    content: "Prefers tea",
+  });
+
+  const changed = await memory.supersede(
+    ownerId,
+    original.memory.id,
+    { content: "Prefers coffee" },
+    { actor },
+  );
+  const replacementHistory = await memory.history(
+    ownerId,
+    changed.replacement.id,
+    { actor },
+  );
+
+  assert.equal(replacementHistory[0].action, "add");
+  assert.equal(replacementHistory[0].actor.id, actor.id);
 });
 
 test("hybrid recall works without embeddings and exposes score components", async () => {

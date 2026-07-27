@@ -95,8 +95,10 @@ alter table public.asp_memories
 alter table public.asp_memories
   drop constraint if exists asp_memories_owner_id_kind_content_key_key;
 
-create unique index if not exists asp_memories_scoped_content_key
-  on public.asp_memories (owner_id, scope_key, kind, content_key);
+drop index if exists public.asp_memories_scoped_content_key;
+create unique index if not exists asp_memories_active_scoped_content_key
+  on public.asp_memories (owner_id, scope_key, kind, content_key)
+  where status = 'active';
 
 create index if not exists asp_memories_scope_rank_idx
   on public.asp_memories (
@@ -627,6 +629,9 @@ declare
   v_current jsonb;
   v_previous jsonb;
   v_created jsonb;
+  v_replacement jsonb;
+  v_replacement_valid_from timestamptz :=
+    coalesce((p_replacement->>'validFrom')::timestamptz, p_at);
 begin
   v_current := public.get_asp_memory_v2(p_owner_id, p_scope, p_memory_id);
   if v_current is null then
@@ -637,13 +642,30 @@ begin
   end if;
   v_previous := public.revise_asp_memory_v2(
     p_owner_id, p_scope, p_memory_id,
-    jsonb_build_object('status', 'superseded', 'validUntil', p_at),
+    jsonb_build_object(
+      'status', 'superseded',
+      'validUntil', v_replacement_valid_from
+    ),
     p_at, p_actor, p_reason
   );
   v_created := public.remember_asp_memory_v2(p_replacement, 0);
+  v_replacement := v_created->'memory';
+  if not (v_created->>'created')::boolean then
+    v_replacement := public.revise_asp_memory_v2(
+      p_owner_id, p_scope, (v_replacement->>'id')::uuid,
+      jsonb_build_object(
+        'links',
+        coalesce(v_replacement->'links', '[]'::jsonb) ||
+          jsonb_build_array(
+            jsonb_build_object('memoryId', p_memory_id, 'type', 'updates')
+          )
+      ),
+      p_at, p_actor, coalesce(p_reason, 'supersede')
+    );
+  end if;
   return jsonb_build_object(
     'previous', v_previous,
-    'replacement', v_created->'memory'
+    'replacement', v_replacement
   );
 end;
 $$;
