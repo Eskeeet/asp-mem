@@ -343,6 +343,12 @@ export class AspMemory {
     if (current.status !== "active") {
       throw new Error(`Only active memories can be superseded: ${memoryId}`);
     }
+    const replacementValidFrom = replacement.validFrom ?? at;
+    if (current.validFrom && replacementValidFrom <= current.validFrom) {
+      throw new RangeError(
+        "Replacement validFrom must be later than the current validFrom",
+      );
+    }
     const links = [
       ...(replacement.links ?? []),
       { memoryId, type: "updates" as const },
@@ -354,7 +360,7 @@ export class AspMemory {
         ...(options.actor ? { actor: options.actor } : {}),
         links,
         supersedesId: memoryId,
-        validFrom: replacement.validFrom ?? at,
+        validFrom: replacementValidFrom,
         ...(replacement.source ?? current.source
           ? { source: replacement.source ?? current.source }
           : {}),

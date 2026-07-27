@@ -234,14 +234,30 @@ test("temporal supersession preserves current and historical truth plus immutabl
   });
 
   now = new Date("2026-01-01T00:00:00Z");
+  await assert.rejects(
+    () =>
+      memory.supersede(ownerId, original.memory.id, {
+        content: "Invalid retrospective replacement",
+        validFrom: new Date("2024-01-01T00:00:00Z"),
+      }),
+    /Replacement validFrom must be later than the current validFrom/,
+  );
   const changed = await memory.supersede(
     ownerId,
     original.memory.id,
-    { kind: "preference", content: "Prefers coffee" },
+    {
+      kind: "preference",
+      content: "Prefers coffee",
+      validFrom: new Date("2025-09-01T00:00:00Z"),
+    },
     { reason: "User explicitly changed preference" },
   );
 
   assert.equal(changed.previous.status, "superseded");
+  assert.equal(
+    changed.previous.validUntil.toISOString(),
+    "2025-09-01T00:00:00.000Z",
+  );
   assert.equal(changed.replacement.supersedesId, original.memory.id);
   assert.deepEqual(
     (await memory.recall(ownerId, { trackAccess: false })).map((item) => item.content),
@@ -255,6 +271,15 @@ test("temporal supersession preserves current and historical truth plus immutabl
       })
     ).map((item) => item.content),
     ["Prefers tea"],
+  );
+  assert.deepEqual(
+    (
+      await memory.recall(ownerId, {
+        referenceTime: new Date("2025-10-01T00:00:00Z"),
+        trackAccess: false,
+      })
+    ).map((item) => item.content),
+    ["Prefers coffee"],
   );
   const history = await memory.history(ownerId, original.memory.id);
   assert.deepEqual(history.map((event) => event.action), ["add", "supersede"]);

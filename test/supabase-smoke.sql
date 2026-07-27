@@ -92,12 +92,15 @@ begin
       'links', jsonb_build_array(jsonb_build_object('memoryId', v_first, 'type', 'updates')),
       'supersedesId', v_first,
       'observedAt', '2026-01-01T00:00:00Z',
-      'validFrom', '2026-01-01T00:00:00Z',
+      'validFrom', '2025-09-01T00:00:00Z',
       'createdAt', '2026-01-01T00:00:00Z'
     ),
     '2026-01-01T00:00:00Z', null, 'changed preference'
   );
   assert v_result->'previous'->>'status' = 'superseded', 'old memory stayed active';
+  assert (v_result->'previous'->>'valid_until')::timestamptz =
+    '2025-09-01T00:00:00Z'::timestamptz,
+    'old validity did not end when the replacement became true';
   assert v_result->'replacement'->>'content' = 'Prefers coffee', 'replacement missing';
 
   select count(*) into v_count

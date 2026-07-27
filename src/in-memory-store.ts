@@ -380,7 +380,10 @@ export class InMemoryStore implements MemoryStore {
     }
     const previous = applyPatch(
       current,
-      { status: "superseded", validUntil: input.at },
+      {
+        status: "superseded",
+        validUntil: input.replacement.validFrom ?? input.at,
+      },
       input.at,
     );
     this.#set(previous, current);

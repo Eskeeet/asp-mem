@@ -630,6 +630,8 @@ declare
   v_previous jsonb;
   v_created jsonb;
   v_replacement jsonb;
+  v_replacement_valid_from timestamptz :=
+    coalesce((p_replacement->>'validFrom')::timestamptz, p_at);
 begin
   v_current := public.get_asp_memory_v2(p_owner_id, p_scope, p_memory_id);
   if v_current is null then
@@ -640,7 +642,10 @@ begin
   end if;
   v_previous := public.revise_asp_memory_v2(
     p_owner_id, p_scope, p_memory_id,
-    jsonb_build_object('status', 'superseded', 'validUntil', p_at),
+    jsonb_build_object(
+      'status', 'superseded',
+      'validUntil', v_replacement_valid_from
+    ),
     p_at, p_actor, p_reason
   );
   v_created := public.remember_asp_memory_v2(p_replacement, 0);
