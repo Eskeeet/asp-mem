@@ -10,6 +10,8 @@ declare
   v_first uuid := '11111111-1111-4111-8111-111111111111';
   v_second uuid := '22222222-2222-4222-8222-222222222222';
   v_third uuid := '44444444-4444-4444-8444-444444444444';
+  v_existing uuid := '55555555-5555-4555-8555-555555555555';
+  v_duplicate_source uuid := '66666666-6666-4666-8666-666666666666';
   v_result jsonb;
   v_count bigint;
   v_score double precision;
@@ -136,6 +138,67 @@ begin
   assert (select access_count from public.asp_memories where id = v_third) = 1,
     'access stats were not recorded';
 
+  perform public.remember_asp_memory_v2(
+    jsonb_build_object(
+      'id', v_existing,
+      'ownerId', v_owner,
+      'scope', jsonb_build_object('userId', v_owner::text, 'agentId', 'agent-a'),
+      'kind', 'preference',
+      'content', 'Enjoys hiking',
+      'importance', 0.6,
+      'confidence', 0.7,
+      'metadata', '{}'::jsonb,
+      'links', '[]'::jsonb,
+      'observedAt', '2027-02-01T00:00:00Z',
+      'createdAt', '2027-02-01T00:00:00Z'
+    ),
+    0.1
+  );
+  perform public.remember_asp_memory_v2(
+    jsonb_build_object(
+      'id', v_duplicate_source,
+      'ownerId', v_owner,
+      'scope', jsonb_build_object('userId', v_owner::text, 'agentId', 'agent-a'),
+      'kind', 'preference',
+      'content', 'Likes trails',
+      'importance', 0.6,
+      'confidence', 0.7,
+      'metadata', '{}'::jsonb,
+      'links', '[]'::jsonb,
+      'observedAt', '2027-02-01T00:00:00Z',
+      'createdAt', '2027-02-01T00:00:00Z'
+    ),
+    0.1
+  );
+  v_result := public.supersede_asp_memory_v2(
+    v_owner,
+    jsonb_build_object('userId', v_owner::text, 'agentId', 'agent-a'),
+    v_duplicate_source,
+    jsonb_build_object(
+      'id', '77777777-7777-4777-8777-777777777777',
+      'ownerId', v_owner,
+      'scope', jsonb_build_object('userId', v_owner::text, 'agentId', 'agent-a'),
+      'kind', 'preference',
+      'content', 'Enjoys hiking',
+      'importance', 0.6,
+      'confidence', 0.9,
+      'metadata', '{}'::jsonb,
+      'links', jsonb_build_array(
+        jsonb_build_object('memoryId', v_duplicate_source, 'type', 'updates')
+      ),
+      'supersedesId', v_duplicate_source,
+      'observedAt', '2027-03-01T00:00:00Z',
+      'validFrom', '2027-03-01T00:00:00Z',
+      'createdAt', '2027-03-01T00:00:00Z'
+    ),
+    '2027-03-01T00:00:00Z', null, 'deduplicated replacement'
+  );
+  assert (v_result->'replacement'->>'id')::uuid = v_existing,
+    'supersession did not reuse the active replacement';
+  assert v_result->'replacement'->'links' @> jsonb_build_array(
+    jsonb_build_object('memoryId', v_duplicate_source, 'type', 'updates')
+  ), 'deduplicated replacement lost its provenance link';
+
   v_count := public.forget_asp_memories_v2(
     v_owner,
     jsonb_build_object('userId', v_owner::text),
@@ -150,6 +213,6 @@ begin
     jsonb_build_object('userId', v_owner::text),
     null, null, null, null
   );
-  assert v_count = 2, 'owner-wide forget did not remove remaining descendants';
+  assert v_count = 4, 'owner-wide forget did not remove remaining descendants';
 end;
 $$;

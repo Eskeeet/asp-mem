@@ -629,6 +629,7 @@ declare
   v_current jsonb;
   v_previous jsonb;
   v_created jsonb;
+  v_replacement jsonb;
 begin
   v_current := public.get_asp_memory_v2(p_owner_id, p_scope, p_memory_id);
   if v_current is null then
@@ -643,9 +644,23 @@ begin
     p_at, p_actor, p_reason
   );
   v_created := public.remember_asp_memory_v2(p_replacement, 0);
+  v_replacement := v_created->'memory';
+  if not (v_created->>'created')::boolean then
+    v_replacement := public.revise_asp_memory_v2(
+      p_owner_id, p_scope, (v_replacement->>'id')::uuid,
+      jsonb_build_object(
+        'links',
+        coalesce(v_replacement->'links', '[]'::jsonb) ||
+          jsonb_build_array(
+            jsonb_build_object('memoryId', p_memory_id, 'type', 'updates')
+          )
+      ),
+      p_at, p_actor, coalesce(p_reason, 'supersede')
+    );
+  end if;
   return jsonb_build_object(
     'previous', v_previous,
-    'replacement', v_created->'memory'
+    'replacement', v_replacement
   );
 end;
 $$;
