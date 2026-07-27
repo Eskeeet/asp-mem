@@ -129,18 +129,24 @@ export class InMemoryStore implements MemoryStore {
   }
 
   #set(memory: Memory, previous?: Memory): void {
+    if (!previous && this.#memories.has(memory.id)) {
+      throw new Error(`Memory id already exists: ${memory.id}`);
+    }
+    const key =
+      memory.status === "active"
+        ? dedupeKey(memory.ownerId, memory.scope, memory.kind, memory.content)
+        : undefined;
+    const duplicateId = key ? this.#dedupe.get(key) : undefined;
+    if (duplicateId !== undefined && duplicateId !== memory.id) {
+      throw new Error(`Active memory already exists: ${duplicateId}`);
+    }
     if (previous) {
       this.#dedupe.delete(
         dedupeKey(previous.ownerId, previous.scope, previous.kind, previous.content),
       );
     }
     this.#memories.set(memory.id, memory);
-    if (memory.status === "active") {
-      this.#dedupe.set(
-        dedupeKey(memory.ownerId, memory.scope, memory.kind, memory.content),
-        memory.id,
-      );
-    }
+    if (key) this.#dedupe.set(key, memory.id);
   }
 
   async remember(input: StoredMemoryInput): Promise<RememberResult> {
@@ -357,6 +363,20 @@ export class InMemoryStore implements MemoryStore {
     if (!current) throw new Error(`Memory not found: ${input.memoryId}`);
     if (current.status !== "active") {
       throw new Error(`Only active memories can be superseded: ${input.memoryId}`);
+    }
+    const replacementDuplicateId = this.#dedupe.get(
+      dedupeKey(
+        input.replacement.ownerId,
+        input.replacement.scope,
+        input.replacement.kind,
+        input.replacement.content,
+      ),
+    );
+    const willReinforceOther =
+      replacementDuplicateId !== undefined &&
+      replacementDuplicateId !== current.id;
+    if (!willReinforceOther && this.#memories.has(input.replacement.id)) {
+      throw new Error(`Memory id already exists: ${input.replacement.id}`);
     }
     const previous = applyPatch(
       current,

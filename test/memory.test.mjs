@@ -41,6 +41,60 @@ test("deduplicates normalized content and reinforces confidence without changing
   assert.equal((await memory.recall(ownerId, { trackAccess: false })).length, 1);
 });
 
+test("rejects identifier collisions without corrupting in-memory state", async () => {
+  const memory = new AspMemory({ idFactory: () => "repeated-id" });
+  const original = await memory.remember({
+    ownerId,
+    content: "Original fact",
+  });
+
+  await assert.rejects(
+    () => memory.remember({ ownerId, content: "Different fact" }),
+    /Memory id already exists: repeated-id/,
+  );
+  await assert.rejects(
+    () =>
+      memory.supersede(ownerId, original.memory.id, {
+        content: "Replacement fact",
+      }),
+    /Memory id already exists: repeated-id/,
+  );
+
+  const recalled = await memory.recall(ownerId, { trackAccess: false });
+  assert.deepEqual(recalled.map((item) => item.content), ["Original fact"]);
+  assert.equal(recalled[0].status, "active");
+  assert.deepEqual(
+    (await memory.history(ownerId, original.memory.id)).map(
+      (event) => event.action,
+    ),
+    ["add"],
+  );
+});
+
+test("rejects revisions that collide with another active memory", async () => {
+  let nextId = 0;
+  const memory = new AspMemory({ idFactory: () => `memory-${++nextId}` });
+  const first = await memory.remember({ ownerId, content: "Alpha fact" });
+  const second = await memory.remember({ ownerId, content: "Beta fact" });
+
+  await assert.rejects(
+    () =>
+      memory.revise(ownerId, second.memory.id, {
+        content: `  ${first.memory.content.toLocaleUpperCase()}  `,
+      }),
+    new RegExp(`Active memory already exists: ${first.memory.id}`),
+  );
+
+  assert.deepEqual(
+    new Set(
+      (await memory.recall(ownerId, { trackAccess: false })).map(
+        (item) => item.content,
+      ),
+    ),
+    new Set(["Alpha fact", "Beta fact"]),
+  );
+});
+
 test("ranks semantic similarity together with importance", async () => {
   const vectors = new Map([
     ["cats", [1, 0]],
